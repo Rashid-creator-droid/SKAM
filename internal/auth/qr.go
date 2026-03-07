@@ -54,8 +54,6 @@ func (s *QRService) Create(ctx context.Context) (token string, expiresInSeconds 
 func (s *QRService) Confirm(ctx context.Context, token string, userID uuid.UUID, email string) error {
 	key := qrKey(token)
 
-	// Ensure exists and pending, then set confirmed + web_jwt.
-	// Lua keeps it atomic.
 	script := redis.NewScript(`
 local key = KEYS[1]
 if redis.call("EXISTS", key) == 0 then
@@ -137,7 +135,6 @@ func (s *QRService) Status(ctx context.Context, token string) (QRStatus, error) 
 func (s *QRService) ConsumeConfirmed(ctx context.Context, token string) (QRStatus, error) {
 	key := qrKey(token)
 
-	// If confirmed, return web_jwt and mark used (and shorten TTL a bit) in one atomic op.
 	script := redis.NewScript(`
 local key = KEYS[1]
 if redis.call("EXISTS", key) == 0 then
@@ -168,7 +165,6 @@ return {jwt, uid, email}
 		return QRStatus{}, errors.New("unexpected redis response")
 	}
 
-	// When returning negative code, Lua returns an array with one number.
 	if len(arr) == 1 {
 		switch n := arr[0].(type) {
 		case int64:
