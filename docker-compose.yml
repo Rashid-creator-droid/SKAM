@@ -34,7 +34,7 @@ services:
       REDIS_ADDR: redis:6379
       REDIS_PASSWORD: ""
       REDIS_DB: 0
-      JWT_SECRET: change-me-in-prod
+      JWT_SECRET: aboba
       JWT_TTL_MINUTES: 1440
       QR_TTL_SECONDS: 60
       SERVER_ADDR: :8080
