@@ -22,7 +22,7 @@ func Load() Config {
 		DBDSN:      getenv("DB_DSN", "host=localhost user=postgres password=postgres dbname=skam port=5432 sslmode=disable"),
 		RedisAddr:  getenv("REDIS_ADDR", "localhost:6379"),
 		RedisPass:  getenv("REDIS_PASSWORD", ""),
-		JWTSecret:  getenv("JWT_SECRET", "dev-secret-change-me"),
+		JWTSecret:  getenv("JWT_SECRET", "aboba"),
 		ServerAddr: getenv("SERVER_ADDR", ":8080"),
 	}
 
