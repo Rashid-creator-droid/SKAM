@@ -12,9 +12,9 @@ import (
 )
 
 var (
-	ErrQRNotFound   = errors.New("qr token not found")
-	ErrQRExpired    = errors.New("qr token expired")
-	ErrQRNotReady   = errors.New("qr token not confirmed")
+	ErrQRNotFound    = errors.New("qr token not found")
+	ErrQRExpired     = errors.New("qr token expired")
+	ErrQRNotReady    = errors.New("qr token not confirmed")
 	ErrQRAlreadyUsed = errors.New("qr token already used")
 )
 
@@ -166,20 +166,19 @@ return {jwt, uid, email}
 	}
 
 	if len(arr) == 1 {
-		switch n := arr[0].(type) {
-		case int64:
-			switch n {
-			case -1:
-				return QRStatus{}, ErrQRNotFound
-			case -2:
-				return QRStatus{}, ErrQRNotReady
-			case -3:
-				return QRStatus{}, ErrQRAlreadyUsed
-			default:
-				return QRStatus{}, errors.New("unexpected status code")
-			}
+		n, ok := arr[0].(int64)
+		if !ok {
+			return QRStatus{}, errors.New("unexpected redis response type")
+		}
+		switch n {
+		case -1:
+			return QRStatus{}, ErrQRNotFound
+		case -2:
+			return QRStatus{}, ErrQRNotReady
+		case -3:
+			return QRStatus{}, ErrQRAlreadyUsed
 		default:
-			return QRStatus{}, errors.New("unexpected status code type")
+			return QRStatus{}, errors.New("unexpected status code")
 		}
 	}
 
@@ -202,4 +201,3 @@ return {jwt, uid, email}
 func qrKey(token string) string {
 	return "auth:qr:" + token
 }
-

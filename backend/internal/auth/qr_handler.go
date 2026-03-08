@@ -118,4 +118,3 @@ func (h *QRHandler) Status(c *gin.Context) {
 		},
 	})
 }
-

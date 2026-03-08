@@ -52,4 +52,3 @@ func (s *Service) ListMessages(ctx context.Context, since *time.Time, limit int)
 	}
 	return msgs, nil
 }
-

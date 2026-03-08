@@ -21,4 +21,3 @@ COPY --from=builder /out/server /app/server
 
 EXPOSE 8080
 ENTRYPOINT ["/app/server"]
-

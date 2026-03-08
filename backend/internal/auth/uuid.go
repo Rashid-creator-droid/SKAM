@@ -13,4 +13,3 @@ func parseUUID(s string) (uuid.UUID, error) {
 	}
 	return id, nil
 }
-
