@@ -90,7 +90,6 @@ func (h *QRHandler) Status(c *gin.Context) {
 		return
 	}
 
-	// One-time handoff: return JWT and mark token as used.
 	consumed, err := h.qr.ConsumeConfirmed(c.Request.Context(), token)
 	if err != nil {
 		if errors.Is(err, ErrQRNotReady) {
