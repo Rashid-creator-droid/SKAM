@@ -8,10 +8,11 @@ import (
 )
 
 type Message struct {
-	ID        uuid.UUID `gorm:"type:uuid;primaryKey"`
-	UserID    uuid.UUID `gorm:"type:uuid;index;not null"`
-	UserEmail string    `gorm:"not null"`
-	Text      string    `gorm:"type:text;not null"`
+	ID        uuid.UUID  `gorm:"type:uuid;primaryKey"`
+	GroupID   *uuid.UUID `gorm:"type:uuid;index"`
+	UserID    uuid.UUID  `gorm:"type:uuid;index;not null"`
+	UserEmail string     `gorm:"not null"`
+	Text      string     `gorm:"type:text;not null"`
 	CreatedAt time.Time
 }
 

@@ -20,13 +20,14 @@ func NewService(db *gorm.DB) *Service {
 
 var ErrEmptyText = errors.New("message text is empty")
 
-func (s *Service) CreateMessage(ctx context.Context, userID uuid.UUID, email, text string) (Message, error) {
+func (s *Service) CreateMessage(ctx context.Context, groupID *uuid.UUID, userID uuid.UUID, email, text string) (Message, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return Message{}, ErrEmptyText
 	}
 
 	msg := Message{
+		GroupID:   groupID,
 		UserID:    userID,
 		UserEmail: email,
 		Text:      text,
@@ -37,13 +38,16 @@ func (s *Service) CreateMessage(ctx context.Context, userID uuid.UUID, email, te
 	return msg, nil
 }
 
-func (s *Service) ListMessages(ctx context.Context, since *time.Time, limit int) ([]Message, error) {
+func (s *Service) ListMessages(ctx context.Context, groupID *uuid.UUID, since *time.Time, limit int) ([]Message, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 
 	var msgs []Message
 	q := s.db.WithContext(ctx).Order("created_at asc").Limit(limit)
+	if groupID != nil {
+		q = q.Where("group_id = ?", groupID)
+	}
 	if since != nil {
 		q = q.Where("created_at > ?", *since)
 	}
@@ -51,4 +55,17 @@ func (s *Service) ListMessages(ctx context.Context, since *time.Time, limit int)
 		return nil, err
 	}
 	return msgs, nil
+}
+
+func (s *Service) DeleteMessage(ctx context.Context, messageID uuid.UUID) error {
+	return s.db.WithContext(ctx).Where("id = ?", messageID).Delete(&Message{}).Error
+}
+
+func (s *Service) GetMessage(ctx context.Context, messageID uuid.UUID) (*Message, error) {
+	var msg Message
+	result := s.db.WithContext(ctx).First(&msg, "id = ?", messageID)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &msg, nil
 }
