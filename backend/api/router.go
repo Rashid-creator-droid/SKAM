@@ -4,6 +4,8 @@ import (
 	"SKAM/internal/auth"
 	"SKAM/internal/chat"
 	"SKAM/internal/config"
+	"SKAM/internal/group"
+	"SKAM/internal/user"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -20,6 +22,10 @@ func SetupRouter(db *gorm.DB, rdb *redis.Client, cfg config.Config) *gin.Engine 
 	qrHandler := auth.NewQRHandler(qrSvc)
 	chatSvc := chat.NewService(db)
 	chatHandler := chat.NewHandler(chatSvc)
+	groupSvc := group.NewService(db)
+	groupHandler := group.NewHandler(groupSvc)
+	userSvc := user.NewService(db)
+	userHandler := user.NewHandler(userSvc)
 
 	authGroup := r.Group("/auth")
 	{
@@ -36,6 +42,27 @@ func SetupRouter(db *gorm.DB, rdb *redis.Client, cfg config.Config) *gin.Engine 
 	{
 		chatGroup.GET("/messages", chatHandler.List)
 		chatGroup.POST("/messages", chatHandler.Send)
+		chatGroup.DELETE("/messages/:id", chatHandler.DeleteMessage)
+	}
+
+	groupsGroup := r.Group("/groups", auth.Middleware(tm))
+	{
+		groupsGroup.POST("", groupHandler.CreateGroup)
+		groupsGroup.GET("", groupHandler.GetUserGroups)
+		groupsGroup.GET("/:id", groupHandler.GetGroup)
+		groupsGroup.PUT("/:id", groupHandler.UpdateGroup)
+		groupsGroup.DELETE("/:id", groupHandler.DeleteGroup)
+		groupsGroup.GET("/:id/members", groupHandler.GetGroupMembers)
+		groupsGroup.POST("/:id/members", groupHandler.AddMember)
+		groupsGroup.DELETE("/:id/members/:user_id", groupHandler.RemoveMember)
+		groupsGroup.PUT("/:id/role", groupHandler.ChangeRole)
+		groupsGroup.PUT("/:id/transfer", groupHandler.TransferAdminship)
+	}
+
+	usersGroup := r.Group("/users", auth.Middleware(tm))
+	{
+		usersGroup.GET("", userHandler.SearchUsers)
+		usersGroup.GET("/:id", userHandler.GetUserByID)
 	}
 
 	return r
