@@ -2,9 +2,10 @@ package main
 
 import (
 	"SKAM/api"
+	"SKAM/internal/chat"
 	"SKAM/internal/config"
 	"SKAM/internal/database"
-	"SKAM/internal/chat"
+	"SKAM/internal/group"
 	"SKAM/internal/user"
 	"context"
 	"log"
@@ -18,7 +19,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := db.AutoMigrate(&user.User{}, &chat.Message{}); err != nil {
+	if err := db.AutoMigrate(&user.User{}, &chat.Message{}, &group.Group{}, &group.GroupMember{}); err != nil {
 		log.Fatal(err)
 	}
 
