@@ -1,9 +1,13 @@
 # SKAM — Мессенджер
 
-S – Social
-K – Keep
-A – Alive
-M – Messaging
+Social
+
+Keep
+
+Alive
+
+Messaging
+
 
 
 ##  Технологический стек
