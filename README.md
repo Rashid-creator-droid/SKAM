@@ -1,6 +1,12 @@
 # SKAM — Мессенджер
 
-Мессенджер с поддержкой QR-авторизации.
+Social
+
+Keep
+
+Alive
+
+Messaging
 
 
 
