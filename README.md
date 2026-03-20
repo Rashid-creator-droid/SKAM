@@ -25,6 +25,9 @@ Messaging
 - **Сборка**: Vite 7
 - **Язык**: TypeScript
 
+### Mobile
+- **Фреймворк**: React Native
+
 ### Инфраструктура
 - **БД**: PostgreSQL 16
 - **Кеш**: Redis 7
