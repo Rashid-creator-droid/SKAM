@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getJson } from "../api";
-import { getUserGroups, getGroupMembers, createGroup } from "../api/groups";
+import { getJson, deleteJson } from "../api";
+import { getUserGroups, getGroupMembers, createGroup, deleteGroup } from "../api/groups";
 import { MessageList } from "../components/MessageList";
 import { MessageInput } from "../components/MessageInput";
 import { Header } from "../components/Header";
+import { GroupList } from "../components/GroupList";
 import { GroupMembersPanel } from "../components/GroupMembersPanel";
+import { SettingsModal } from "../components/SettingsModal";
 import type { GroupWithRole, GroupMember } from "../types/groups";
 
 type MeResponse = { id: string; email: string };
@@ -28,7 +30,7 @@ export function ChatPage() {
   const [meErr, setMeErr] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [err, setErr] = useState("");
-  
+
   // Группы
   const [groups, setGroups] = useState<GroupWithRole[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(true);
@@ -36,12 +38,25 @@ export function ChatPage() {
   const [userRoleInGroup, setUserRoleInGroup] = useState<"admin" | "moderator" | "member" | null>(null);
   const [showMembersPanel, setShowMembersPanel] = useState(false);
   const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
-  
+
   // Модальное окно создания группы
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupDesc, setNewGroupDesc] = useState("");
   const [creating, setCreating] = useState(false);
+
+  // Модальное окно настроек
+  const [showSettings, setShowSettings] = useState(false);
+
+  // Модальное окно настроек группы
+  const [showGroupSettings, setShowGroupSettings] = useState(false);
+  const [deletingGroup, setDeletingGroup] = useState(false);
+
+  // Последнее сообщение в каждой группе для сортировки
+  const [groupLastMessages, setGroupLastMessages] = useState<Record<string, string>>({});
+
+  // Ref для автоскролла
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!jwt) {
@@ -84,6 +99,11 @@ export function ChatPage() {
           const groupsArray = Array.isArray(data) ? data : [];
           setGroups(groupsArray);
           setGroupsLoading(false);
+          
+          // Автовыбор первой группы если есть
+          if (groupsArray.length > 0 && !selectedGroupId) {
+            setSelectedGroupId(groupsArray[0].id);
+          }
         }
       } catch (e: unknown) {
         if (!cancelled) {
@@ -125,6 +145,11 @@ export function ChatPage() {
     return () => { cancelled = true; };
   }, [selectedGroupId, jwt, me?.id]);
 
+  // Очистка сообщений при переключении группы
+  useEffect(() => {
+    setMessages([]);
+  }, [selectedGroupId]);
+
   // Polling сообщений
   useEffect(() => {
     if (!jwt || !selectedGroupId) return;
@@ -154,6 +179,12 @@ export function ChatPage() {
 
         const last = res[res.length - 1];
         lastSince = last.created_at;
+
+        // Обновляем время последнего сообщения для группы
+        setGroupLastMessages(prev => ({
+          ...prev,
+          [selectedGroupId]: last.created_at
+        }));
       } catch (e: unknown) {
         if (cancelled) return;
         setErr((prev) => (prev ? prev : e instanceof Error ? e.message : "Ошибка чата"));
@@ -168,6 +199,11 @@ export function ChatPage() {
       window.clearInterval(id);
     };
   }, [jwt, selectedGroupId]);
+
+  // Автоскролл к последнему сообщению
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   function setToken(token: string) {
     setJwt(token);
@@ -189,16 +225,18 @@ export function ChatPage() {
 
   const handleCreateGroup = async () => {
     if (!newGroupName.trim()) return;
-    
+
     setCreating(true);
     try {
-      const group = await createGroup({ 
-        name: newGroupName.trim(), 
-        description: newGroupDesc.trim() 
+      const group = await createGroup({
+        name: newGroupName.trim(),
+        description: newGroupDesc.trim()
       }, jwt);
       setShowCreateGroup(false);
       setNewGroupName("");
       setNewGroupDesc("");
+      // Добавляем новую группу в список с ролью admin
+      setGroups((prev) => [...prev, { ...group, user_role: "admin" as const }]);
       setSelectedGroupId(group.id);
     } catch (err) {
       setErr(err instanceof Error ? err.message : "Ошибка создания группы");
@@ -210,11 +248,46 @@ export function ChatPage() {
   const canModerate = userRoleInGroup === "admin" || userRoleInGroup === "moderator";
   const selectedGroup = groups.find(g => g.id === selectedGroupId);
 
+  const handleDeleteGroup = async () => {
+    if (!selectedGroupId || !jwt) return;
+    if (!confirm("Вы уверены, что хотите удалить эту группу?")) return;
+
+    setDeletingGroup(true);
+    try {
+      await deleteGroup(selectedGroupId, jwt);
+      setShowGroupSettings(false);
+      // Удаляем группу из списка
+      setGroups((prev) => prev.filter(g => g.id !== selectedGroupId));
+      // Сбрасываем выбранную группу
+      setSelectedGroupId(null);
+    } catch (err) {
+      setErr(err instanceof Error ? err.message : "Ошибка удаления группы");
+    } finally {
+      setDeletingGroup(false);
+    }
+  };
+
+  // Сортировка групп: сначала с последними сообщениями (по убыванию), потом без
+  const sortedGroups = [...groups].sort((a, b) => {
+    const aTime = groupLastMessages[a.id];
+    const bTime = groupLastMessages[b.id];
+
+    // Если есть сообщения в обеих группах - сортируем по времени
+    if (aTime && bTime) {
+      return new Date(bTime).getTime() - new Date(aTime).getTime();
+    }
+    // Если есть только в одной - та группа выше, у которой есть
+    if (aTime) return -1;
+    if (bTime) return 1;
+    // Если нет ни в одной - сортируем по названию
+    return a.name.localeCompare(b.name);
+  });
+
   // Если данные еще загружаются - показываем индикатор
   if (groupsLoading) {
     return (
       <div className="chatPage" style={{ padding: 0 }}>
-        <Header jwt={jwt} onLogout={() => { setToken(""); navigate("/login"); }} showChatTitle />
+        <Header jwt={jwt} onLogout={() => { setToken(""); navigate("/login"); }} />
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div className="muted">Загрузка...</div>
         </div>
@@ -222,267 +295,122 @@ export function ChatPage() {
     );
   }
 
-  // Если группы не выбраны - показываем экран выбора групп
-  if (!selectedGroupId) {
-    return (
-      <div className="chatPage" style={{ padding: 0 }}>
-        <Header jwt={jwt} onLogout={() => { setToken(""); navigate("/login"); }} showChatTitle />
-        
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: 24 }}>
-          {me ? (
-            <div className="ok" style={{ marginBottom: 24 }}>
-              <b>{me.email}</b> в сети
-            </div>
-          ) : meErr ? (
-            <div className="error" style={{ marginBottom: 24 }}>{meErr}</div>
-          ) : null}
-
-          <h2 style={{ marginBottom: 20 }}>Ваши группы</h2>
-
-          {groups.length === 0 ? (
-            <div className="muted" style={{ textAlign: "center", padding: 40, fontSize: 16 }}>
-              У вас пока нет групп.<br />Нажмите + чтобы создать новую.
-            </div>
-          ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-              {groups.map((group) => (
-                <div
-                  key={group.id}
-                  onClick={() => setSelectedGroupId(group.id)}
-                  style={{
-                    padding: 20,
-                    border: "2px solid #e5e7eb",
-                    borderRadius: 12,
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                    backgroundColor: "#fff",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = "#ec4899";
-                    e.currentTarget.style.transform = "translateY(-2px)";
-                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(236, 72, 153, 0.15)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "#e5e7eb";
-                    e.currentTarget.style.transform = "translateY(0)";
-                    e.currentTarget.style.boxShadow = "none";
-                  }}
-                >
-                  <div style={{ fontWeight: 600, fontSize: 18, marginBottom: 8 }}>{group.name}</div>
-                  <div style={{ fontSize: 13, color: "#6b7280" }}>
-                    {group.user_role === "admin" && "👑 Администратор"}
-                    {group.user_role === "moderator" && "🛡️ Модератор"}
-                    {group.user_role === "member" && "👤 Участник"}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Большая кнопка + внизу */}
-        <button
-          onClick={() => setShowCreateGroup(true)}
-          style={{
-            position: "fixed",
-            bottom: 40,
-            right: 40,
-            width: 70,
-            height: 70,
-            borderRadius: "50%",
-            border: "none",
-            background: "linear-gradient(135deg, #ec4899, #f472b6)",
-            color: "white",
-            fontSize: 40,
-            fontWeight: "bold",
-            cursor: "pointer",
-            boxShadow: "0 6px 20px rgba(236, 72, 153, 0.4)",
-            transition: "all 0.2s",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            paddingBottom: 4,
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = "scale(1.1)";
-            e.currentTarget.style.boxShadow = "0 8px 25px rgba(236, 72, 153, 0.5)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "scale(1)";
-            e.currentTarget.style.boxShadow = "0 6px 20px rgba(236, 72, 153, 0.4)";
-          }}
-        >
-          +
-        </button>
-
-        {/* Модальное окно создания группы */}
-        {showCreateGroup && (
-          <div className="modal-overlay" onClick={() => setShowCreateGroup(false)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
-              <h2 style={{ marginTop: 0, marginBottom: 20 }}>Новая группа</h2>
-              
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", marginBottom: 6, fontWeight: 500 }}>
-                  Название группы *
-                </label>
-                <input
-                  type="text"
-                  value={newGroupName}
-                  onChange={(e) => setNewGroupName(e.target.value)}
-                  placeholder="Введите название"
-                  autoFocus
-                />
-              </div>
-
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ display: "block", marginBottom: 6, fontWeight: 500 }}>
-                  Описание
-                </label>
-                <textarea
-                  value={newGroupDesc}
-                  onChange={(e) => setNewGroupDesc(e.target.value)}
-                  placeholder="Описание (необязательно)"
-                  rows={3}
-                  style={{ width: "100%", boxSizing: "border-box", resize: "vertical" }}
-                />
-              </div>
-
-              {err && <div className="error" style={{ marginBottom: 16 }}>{err}</div>}
-
-              <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
-                <button className="btn btnSecondary" onClick={() => setShowCreateGroup(false)} disabled={creating}>
-                  Отмена
-                </button>
-                <button className="btn btnPrimary" onClick={handleCreateGroup} disabled={creating || !newGroupName.trim()}>
-                  {creating ? "Создание..." : "Создать"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
   // Экран чата
   return (
-    <div className="chatPage">
-      <div className="chatCard" style={{ display: "flex", height: "100vh" }}>
-        {/* Боковая панель с группами */}
-        <div style={{ width: 250, borderRight: "1px solid #e5e7eb", padding: 16, overflow: "auto", backgroundColor: "#fafafa" }}>
-          <div style={{ marginBottom: 16 }}>
-            <button
-              onClick={() => setSelectedGroupId(null)}
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                border: "2px solid #e5e7eb",
-                borderRadius: 8,
-                background: "white",
-                cursor: "pointer",
-                fontWeight: 500,
-                fontSize: 14,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              ← Назад к группам
-            </button>
-          </div>
-          
-          <h4 style={{ margin: "0 0 12px 0", fontSize: 13, color: "#6b7280", textTransform: "uppercase" }}>Ваши группы</h4>
-          
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {groups.map((group) => (
-              <li
-                key={group.id}
-                onClick={() => setSelectedGroupId(group.id)}
-                style={{
-                  padding: "10px 12px",
-                  marginBottom: 4,
-                  borderRadius: 6,
-                  cursor: "pointer",
-                  backgroundColor: selectedGroupId === group.id ? "#fce7f3" : "transparent",
-                  fontSize: 14,
-                  fontWeight: selectedGroupId === group.id ? 600 : 400,
-                }}
-              >
-                {group.name}
-              </li>
-            ))}
-          </ul>
-          
-          <button
-            onClick={() => setShowCreateGroup(true)}
-            style={{
-              width: "100%",
-              marginTop: 16,
-              padding: "10px",
-              border: "2px dashed #ec4899",
-              borderRadius: 8,
-              background: "transparent",
-              color: "#ec4899",
-              cursor: "pointer",
-              fontWeight: 600,
-              fontSize: 14,
-            }}
-          >
-            + Новая группа
-          </button>
-        </div>
+    <div className="chatPage" style={{ padding: 0 }}>
+      <div className="chatCard" style={{ display: "flex", flexDirection: "column", height: "100vh", padding: 0 }}>
+        {/* Header с кнопкой настроек */}
+        <Header
+          jwt={jwt}
+          onLogout={() => { setToken(""); navigate("/login"); }}
+          onSettingsClick={() => setShowSettings(true)}
+        />
 
-        {/* Основная область чата */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          <Header jwt={jwt} onLogout={() => { setToken(""); navigate("/login"); }} showChatTitle />
-
-          {/* Заголовок группы */}
-          <div style={{ 
-            display: "flex", 
-            justifyContent: "space-between", 
-            alignItems: "center", 
-            marginBottom: 12,
-            padding: "12px 16px",
-            backgroundColor: "#fce7f3",
-            borderRadius: 8
+        {/* Основной контент: группы слева + чат справа */}
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          {/* Список групп слева */}
+          <div style={{
+            width: 280,
+            borderRight: "1px solid #e5e7eb",
+            display: "flex",
+            flexDirection: "column",
+            backgroundColor: "#fafafa",
+            minHeight: 0,
           }}>
-            <div>
-              <b style={{ fontSize: 16 }}>{selectedGroup?.name}</b>
+            <div style={{ padding: 16, borderBottom: "1px solid #e5e7eb" }}>
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Группы</div>
               <div style={{ fontSize: 12, color: "#6b7280" }}>
-                {userRoleInGroup === "admin" && "👑 Администратор"}
-                {userRoleInGroup === "moderator" && "🛡️ Модератор"}
-                {userRoleInGroup === "member" && "👤 Участник"}
+                {groups.length} {groups.length === 1 ? 'группа' : groups.length < 5 ? 'группы' : 'групп'}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                className="btn btnSecondary"
-                onClick={() => setShowMembersPanel(true)}
-                style={{ fontSize: 13, padding: "6px 14px" }}
-              >
-                Участники ({groupMembers.length})
-              </button>
-            </div>
-          </div>
 
-          <div className="chatMessages" style={{ flex: 1, overflow: "auto" }}>
-            <MessageList
-              messages={messages}
-              currentUserId={me?.id}
-              jwt={jwt}
-              canModerate={canModerate}
-              onDeleteMessage={handleDeleteMessage}
+            <GroupList
+              groups={sortedGroups}
+              selectedGroupId={selectedGroupId}
+              onSelectGroup={setSelectedGroupId}
+              onCreateGroup={() => setShowCreateGroup(true)}
             />
           </div>
 
-          <MessageInput
-            jwt={jwt}
-            groupId={selectedGroupId}
-            onMessageSent={handleSendMessage}
-            onError={handleError}
-          />
+          {/* Основная область чата */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+            {/* Заголовок группы */}
+            {selectedGroup && (
+              <div style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "12px 16px",
+                backgroundColor: "#fce7f3",
+                borderBottom: "1px solid #fbcfe8"
+              }}>
+                <div>
+                  <b style={{ fontSize: 16 }}>{selectedGroup.name}</b>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>
+                    {userRoleInGroup === "admin" && "👑 Администратор"}
+                    {userRoleInGroup === "moderator" && "🛡️ Модератор"}
+                    {userRoleInGroup === "member" && "👤 Участник"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="btn btnSecondary"
+                    onClick={() => setShowMembersPanel(true)}
+                    style={{ fontSize: 13, padding: "6px 12px", display: "flex", alignItems: "center", gap: 6 }}
+                    title="Участники"
+                  >
+                    <span style={{ fontSize: 16 }}>👤</span>
+                    <span>{groupMembers.length}</span>
+                  </button>
+                  {(userRoleInGroup === "admin" || userRoleInGroup === "moderator") && (
+                    <button
+                      className="btn btnSecondary"
+                      onClick={() => setShowGroupSettings(true)}
+                      style={{ fontSize: 13, padding: "6px 12px" }}
+                      title="Настройки группы"
+                    >
+                      ⚙️
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
-          {err ? <div className="error">{err}</div> : null}
+            {/* Сообщения чата с фиксированной высотой */}
+            <div style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              padding: 16,
+              overflow: "hidden",
+              minHeight: 0,
+            }}>
+              <div className="chatMessages" style={{
+                flex: 1,
+                overflow: "auto",
+                marginBottom: 16,
+                minHeight: 0,
+              }}>
+                <MessageList
+                  messages={messages}
+                  currentUserId={me?.id}
+                  jwt={jwt}
+                  canModerate={canModerate}
+                  onDeleteMessage={handleDeleteMessage}
+                />
+                <div ref={messagesEndRef} />
+              </div>
+
+              <MessageInput
+                jwt={jwt}
+                groupId={selectedGroupId}
+                onMessageSent={handleSendMessage}
+                onError={handleError}
+              />
+
+              {err ? <div className="error" style={{ marginTop: 12 }}>{err}</div> : null}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -501,7 +429,7 @@ export function ChatPage() {
         <div className="modal-overlay" onClick={() => setShowCreateGroup(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
             <h2 style={{ marginTop: 0, marginBottom: 20 }}>Новая группа</h2>
-            
+
             <div style={{ marginBottom: 16 }}>
               <label style={{ display: "block", marginBottom: 6, fontWeight: 500 }}>
                 Название группы *
@@ -536,6 +464,44 @@ export function ChatPage() {
               </button>
               <button className="btn btnPrimary" onClick={handleCreateGroup} disabled={creating || !newGroupName.trim()}>
                 {creating ? "Создание..." : "Создать"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно настроек */}
+      {showSettings && (
+        <SettingsModal
+          userEmail={me?.email}
+          onLogout={() => { setToken(""); navigate("/login"); }}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {/* Модальное окно настроек группы */}
+      {showGroupSettings && (
+        <div className="modal-overlay" onClick={() => setShowGroupSettings(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <h2 style={{ marginTop: 0, marginBottom: 20 }}>Настройки группы</h2>
+
+            <div style={{ marginBottom: 24, padding: 16, backgroundColor: "#f9fafb", borderRadius: 12 }}>
+              <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 4 }}>Группа</div>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>{selectedGroup?.name}</div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <button
+                className="btn"
+                onClick={handleDeleteGroup}
+                disabled={deletingGroup}
+                style={{
+                  width: "100%",
+                  borderColor: "#ef4444",
+                  color: "#ef4444",
+                }}
+              >
+                {deletingGroup ? "Удаление..." : "Удалить группу"}
               </button>
             </div>
           </div>

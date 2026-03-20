@@ -282,7 +282,11 @@ input:focus {
 
 /* Список групп */
 .groupList {
-  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 16px;
+  overflow: hidden;
 }
 
 .groupItem:hover {

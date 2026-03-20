@@ -38,5 +38,10 @@ dist
 .env
 .env.local
 
+<<<<<<< HEAD
 /mobile
 mobile
+=======
+mobile
+/mobile
+>>>>>>> 67ce626963abc8b17dc360095a773be855a808ec

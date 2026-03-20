@@ -8,3 +8,4 @@ export { GroupList } from "./GroupList";
 export { CreateGroupModal } from "./CreateGroupModal";
 export { GroupMembersPanel } from "./GroupMembersPanel";
 export { UserSearch } from "./UserSearch";
+export { SettingsModal } from "./SettingsModal";
