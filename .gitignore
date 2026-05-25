@@ -38,5 +38,6 @@ dist
 .env
 .env.local
 
+# Mobile app
 mobile
 /mobile
